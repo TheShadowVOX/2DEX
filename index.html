@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>2DEX - 1.0</title>
+  <script src="./node_modules/jsqr/dist/jsQR.js"></script>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            dark: {
+              100: '#27272a',
+              200: '#1f1f23',
+              300: '#18181b',
+              400: '#121215',
+              500: '#0c0c0e',
+            },
+            accent: {
+              blue: '#3b82f6',
+              indigo: '#6366f1',
+              purple: '#8b5cf6',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <!-- Bootstrap Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    * {
+      font-family: 'Inter', system-ui, sans-serif;
+    }
+    
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #1a1a1a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #3b82f6;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #2563eb;
+    }
+    
+    /* Animation for OTP countdown */
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.5; }
+      100% { opacity: 1; }
+    }
+    .pulse {
+      animation: pulse 1s infinite;
+    }
+    
+    /* Smooth transitions */
+    .transition-all {
+      transition: all 0.3s ease;
+    }
+  </style>
+</head>
+<body class="bg-dark-400 min-h-screen flex items-center justify-center p-4 text-gray-100">
+  <div class="w-full max-w-2xl bg-dark-300 rounded-xl shadow-2xl overflow-hidden border border-dark-100" id="app"></div>
+
+  <!-- PIN Modal -->
+  <div id="pinModal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
+    <div class="bg-dark-200 p-6 rounded-xl shadow-xl w-full max-w-md border border-dark-100">
+      <h2 class="text-xl font-bold mb-4 flex items-center gap-2"><i class="bi bi-lock-fill text-accent-blue"></i> Enter PIN</h2>
+      <input id="pinInput" type="password" placeholder="Your 4-digit PIN" maxlength="4" inputmode="numeric"
+             class="bg-dark-100 border border-dark-100 text-white p-3 rounded-lg w-full mb-4 focus:ring-2 focus:ring-accent-blue focus:outline-none transition-all"/>
+      <div class="flex justify-end gap-2">
+        <button onclick="closePinModal()" class="px-4 py-2 bg-dark-100 hover:bg-dark-200 text-white rounded-lg transition-all">Cancel</button>
+        <button id="pinConfirmBtn" class="px-4 py-2 bg-accent-blue hover:bg-blue-600 text-white rounded-lg transition-all">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- QR Scanner Modal -->
+  <div id="qrModal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
+    <div class="bg-dark-200 p-6 rounded-xl shadow-xl w-full max-w-md border border-dark-100">
+      <h2 class="text-xl font-bold mb-4 flex items-center gap-2"><i class="bi bi-qr-code-scan text-accent-blue"></i> Scan QR Code</h2>
+      <video id="video" autoplay playsinline class="w-full rounded-lg bg-black"></video>
+      <canvas id="canvas" class="hidden"></canvas>
+      <div class="mt-4 flex gap-2 justify-end">
+        <button onclick="stopScan(); document.getElementById('qrModal').classList.add('hidden');" class="px-4 py-2 bg-dark-100 hover:bg-dark-200 text-white rounded-lg transition-all">Cancel</button>
+        <button onclick="startScan()" class="px-4 py-2 bg-accent-blue hover:bg-blue-600 text-white rounded-lg transition-all">Start Scan</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // ===== PIN screens =====
+  async function render() {
+    const app = document.getElementById("app");
+    const hasPin = await window.api.hasPin();
+    if (!hasPin) {
+      app.innerHTML = `
+        <div class="p-6">
+          <div class="flex items-center gap-3 mb-6">
+            <div class="bg-accent-blue p-3 rounded-full">
+              <i class="bi bi-shield-lock-fill text-white text-2xl"></i>
+            </div>
+            <h1 class="text-2xl font-bold">Secure Your Vault</h1>
+          </div>
+          <p class="text-gray-400 mb-4">Set a 4-digit PIN to protect your 2FA codes on this device.</p>
+          <input type="password" id="pin" maxlength="4" inputmode="numeric" placeholder="Enter 4-digit PIN" 
+                 class="w-full bg-dark-100 border border-dark-100 text-white p-3 rounded-lg mb-4 focus:ring-2 focus:ring-accent-blue focus:outline-none transition-all" />
+          <button class="w-full bg-accent-blue hover:bg-blue-600 text-white p-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2" onclick="setPin()">
+            <i class="bi bi-check-lg"></i> Save PIN
+          </button>
+          <p class="text-gray-500 text-sm mt-4"><i class="bi bi-info-circle"></i> This PIN encrypts your vault locally.</p>
+        </div>
+      `;
+    } else {
+      app.innerHTML = `
+        <div class="p-6">
+          <div class="flex items-center gap-3 mb-6">
+            <div class="bg-accent-blue p-3 rounded-full">
+              <i class="bi bi-key-fill text-white text-2xl"></i>
+            </div>
+            <h1 class="text-2xl font-bold">Welcome Back</h1>
+          </div>
+          <p class="text-gray-400 mb-4">Enter your PIN to access your 2FA codes</p>
+          <input type="password" id="pin" maxlength="4" inputmode="numeric" placeholder="Enter your PIN" 
+                 class="w-full bg-dark-100 border border-dark-100 text-white p-3 rounded-lg mb-2 focus:ring-2 focus:ring-accent-blue focus:outline-none transition-all" />
+          <div id="err" class="text-red-400 min-h-6 mb-4 flex items-center gap-2"><i class="bi bi-exclamation-triangle"></i> <span></span></div>
+          <button class="w-full bg-accent-blue hover:bg-blue-600 text-white p-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2" onclick="verifyPin()">
+            <i class="bi bi-unlock-fill"></i> Unlock Vault
+          </button>
+          <p class="text-gray-500 text-sm mt-4 text-center"><i class="bi bi-shield-check"></i> Your data is encrypted locally</p>
+        </div>
+      `;
+    }
+  }
+
+  function closePinModal() {
+    document.getElementById("pinModal").classList.add("hidden");
+  }
+
+  async function backupVault() {
+    try {
+      const pin = await askPIN("backup your vault");
+      const ok = await window.api.exportVault(pin);
+      if (ok) {
+        showNotification("✅ Vault exported successfully!", "success");
+      }
+    } catch (e) {
+      console.error(e);
+      showNotification("Export failed! " + (e.message || ""), "error");
+    }
+  }
+
+  async function restoreVault() {
+    try {
+      const pin = await askPIN("restore your vault");
+      const ok = await window.api.importVault(pin);
+      if (ok) {
+        showNotification("✅ Vault restored! Restarting app...", "success");
+        setTimeout(() => window.api.quit(), 1500);
+      }
+    } catch (e) {
+      console.error(e);
+      showNotification("Restore failed! " + (e.message || ""), "error");
+    }
+  }
+
+  function showNotification(message, type = "info") {
+    // Remove any existing notification
+    const existingNote = document.getElementById("notification");
+    if (existingNote) existingNote.remove();
+    
+    const notification = document.createElement("div");
+    notification.id = "notification";
+    notification.className = `fixed top-4 right-4 p-4 rounded-lg shadow-lg z-50 transform transition-all duration-300 ${
+      type === "success" ? "bg-green-700" : 
+      type === "error" ? "bg-red-700" : "bg-blue-700"
+    }`;
+    notification.innerHTML = `
+      <div class="flex items-center gap-2">
+        <i class="bi bi-${type === "success" ? "check-circle" : type === "error" ? "exclamation-triangle" : "info-circle"}-fill"></i>
+        <span>${message}</span>
+      </div>
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // Auto remove after 3 seconds
+    setTimeout(() => {
+      if (notification.parentNode) {
+        notification.classList.add("opacity-0");
+        setTimeout(() => notification.remove(), 300);
+      }
+    }, 3000);
+  }
+
+  async function setPin() {
+    const pin = document.getElementById("pin").value;
+    if (pin.length !== 4) {
+      showNotification("PIN must be 4 digits", "error");
+      return;
+    }
+    
+    try {
+      await window.api.setPin(pin);
+      showNotification("PIN set successfully!", "success");
+      setTimeout(() => window.api.quit(), 1000);
+    } catch (e) {
+      showNotification(e.message || "Failed to set PIN", "error");
+    }
+  }
+
+  async function verifyPin() {
+    const pin = document.getElementById("pin").value;
+    const ok = await window.api.verifyPin(pin);
+    if (ok) {
+      showNotification("Vault unlocked!", "success");
+      setTimeout(() => renderCatalog(), 500);
+    } else {
+      document.getElementById("err").innerHTML = "<i class='bi bi-exclamation-triangle'></i> Wrong PIN!";
+      setTimeout(() => {
+        document.getElementById("err").innerHTML = "";
+      }, 2000);
+    }
+  }
+
+  // ===== Catalog / OTP UI =====
+  let otpTimer = null;
+
+  async function renderCatalog() {
+    const app = document.getElementById("app");
+    app.innerHTML = `
+      <div class="bg-dark-300">
+        <div class="p-5 border-b border-dark-100 flex justify-between items-center">
+          <h1 class="text-xl font-bold flex items-center gap-2">
+            <div class="bg-gradient-to-r from-accent-blue to-accent-purple p-2 rounded-full">
+              <i class="bi bi-shield-lock text-white"></i>
+            </div>
+            <span>2DEX</span>
+          </h1>
+          <div class="flex gap-2">
+            <button onclick="showAddForm()" class="p-2 bg-dark-100 hover:bg-dark-200 rounded-lg transition-all" title="Add Account">
+              <i class="bi bi-plus-lg"></i>
+            </button>
+            <button onclick="document.getElementById('qrModal').classList.remove('hidden')" class="p-2 bg-dark-100 hover:bg-dark-200 rounded-lg transition-all" title="Scan QR Code">
+              <i class="bi bi-qr-code-scan"></i>
+            </button>
+<button onclick="openUserData()" 
+        class="w-full text-left px-4 py-2 hover:bg-dark-100 transition-all flex items-center gap-2">
+  <i class="bi bi-folder2"></i> 
+</button>
+
+            <div class="relative group">
+              <button class="p-2 bg-dark-100 hover:bg-dark-200 rounded-lg transition-all" title="More Options">
+                <i class="bi bi-three-dots-vertical"></i>
+              </button>
+
+
+              <div class="absolute right-0 mt-1 w-48 bg-dark-200 border border-dark-100 rounded-lg shadow-lg py-2 z-10 hidden group-hover:block">
+
+                <button onclick="showFileUpload()" class="w-full text-left px-4 py-2 hover:bg-dark-100 transition-all flex items-center gap-2">
+                  <i class="bi bi-upload"></i> Upload File
+                </button>
+                <button onclick="backupVault()" class="w-full text-left px-4 py-2 hover:bg-dark-100 transition-all flex items-center gap-2">
+                  <i class="bi bi-cloud-arrow-up"></i> Backup Vault
+                </button>
+                <button onclick="restoreVault()" class="w-full text-left px-4 py-2 hover:bg-dark-100 transition-all flex items-center gap-2">
+                  <i class="bi bi-cloud-arrow-down"></i> Restore Vault
+                </button>
+                <hr class="border-dark-100 my-1">
+                <button onclick="selfDestruct()" class="w-full text-left px-4 py-2 hover:bg-red-500/20 text-red-400 transition-all flex items-center gap-2">
+                  <i class="bi bi-trash3"></i> Self Destruct
+                </button>
+                <button onclick="window.api.surprise()" class="w-full text-left px-4 py-2 hover:bg-dark-100 transition-all flex items-center gap-2">
+                  <i class="bi bi-gift"></i> Surprise
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="p-4" id="list"></div>
+        <div class="p-4 text-center text-gray-500 text-sm border-t border-dark-100">
+          <i class="bi bi-info-circle"></i> Supports Google Authenticator otpauth:// or migration QR codes.
+        </div>
+      </div>
+    `;
+    await refreshAccounts();
+    if (otpTimer) clearInterval(otpTimer);
+    otpTimer = setInterval(tickOtps, 300);
+  }
+
+ async function refreshAccounts() {
+  const list = document.getElementById("list");
+  const accounts = await window.api.getAccounts();
+  if (!accounts.length) {
+    list.innerHTML = `
+      <div class="text-center py-10 text-gray-500">
+        <i class="bi bi-inboxes text-4xl mb-3 block"></i>
+        <p>No entries yet. Click <b>+ Add</b> or <b>Scan QR</b> to get started.</p>
+      </div>
+    `;
+    return;
+  }
+
+  list.innerHTML = accounts.map(acc => `
+    <div class="bg-dark-200 border border-dark-100 rounded-xl p-4 mb-3 transition-all hover:border-accent-blue/30" 
+         data-id="${acc.id}" data-secret="${acc.secret || ""}" data-digits="${acc.digits}" data-period="${acc.period}" data-alg="${acc.algorithm}">
+      <div class="flex justify-between items-start mb-3">
+        <div>
+          <h3 class="font-semibold text-lg">${escapeHtml(acc.service)}</h3>
+          <p class="text-gray-400 text-sm hidden" id="account-${acc.id}">${escapeHtml(acc.account)}</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="toggle-visibility text-gray-400 hover:text-white" data-target="${acc.id}">
+            <i class="bi bi-eye"></i>
+          </button>
+          <div class="bg-dark-100 p-2 rounded-lg">
+            <i class="bi bi-shield-check text-accent-blue"></i>
+          </div>
+        </div>
+      </div>
+      <div class="flex justify-between items-center">
+        <!-- Masked OTP -->
+        <div class="text-2xl font-mono font-bold tracking-wider" id="otp-mask-${acc.id}">••••••</div>
+        <!-- Real OTP (hidden at first) -->
+        <div class="text-2xl font-mono font-bold tracking-wider hidden" id="otp-${acc.id}">••••••</div>
+
+        <div class="bg-dark-100 px-3 py-1 rounded-full text-sm font-mono countdown flex items-center" id="left-${acc.id}">
+          <span class="pulse mr-1">●</span> <span>…s</span>
+        </div>
+      </div>
+    </div>
+  `).join("");
+
+  // ✅ Attach visibility toggle events here
+  document.querySelectorAll(".toggle-visibility").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.target;
+      const icon = btn.querySelector("i");
+      const emailEl = document.getElementById(`account-${id}`);
+      const otpEl = document.getElementById(`otp-${id}`);
+      const otpMaskEl = document.getElementById(`otp-mask-${id}`);
+
+      const isHidden = otpEl.classList.contains("hidden");
+
+      if (isHidden) {
+        emailEl.classList.remove("hidden");
+        otpEl.classList.remove("hidden");
+        otpMaskEl.classList.add("hidden");
+        icon.classList.replace("bi-eye", "bi-eye-slash");
+      } else {
+        emailEl.classList.add("hidden");
+        otpEl.classList.add("hidden");
+        otpMaskEl.classList.remove("hidden");
+        icon.classList.replace("bi-eye-slash", "bi-eye");
+      }
+    });
+  });
+
+  tickOtps();
+}
+
+
+  function escapeHtml(s) {
+    return (s || "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+document.querySelectorAll(".toggle-visibility").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const id = btn.dataset.target;
+    const icon = btn.querySelector("i");
+    const emailEl = document.getElementById(`account-${id}`);
+    const otpEl = document.getElementById(`otp-${id}`);
+    const otpMaskEl = document.getElementById(`otp-mask-${id}`);
+
+    const isHidden = otpEl.classList.contains("hidden");
+
+    if (isHidden) {
+      // Show email + real code
+      emailEl.classList.remove("hidden");
+      otpEl.classList.remove("hidden");
+      otpMaskEl.classList.add("hidden");
+      icon.classList.replace("bi-eye", "bi-eye-slash");
+    } else {
+      // Hide again
+      emailEl.classList.add("hidden");
+      otpEl.classList.add("hidden");
+      otpMaskEl.classList.remove("hidden");
+      icon.classList.replace("bi-eye-slash", "bi-eye");
+    }
+  });
+});
+
+  async function tickOtps() {
+    const list = document.getElementById("list");
+    if (!list) return;
+    const items = Array.from(list.querySelectorAll(".bg-dark-200"));
+    const now = Math.floor(Date.now() / 1000);
+    for (const el of items) {
+      const id = el.getAttribute("data-id");
+      const secret = el.getAttribute("data-secret");
+      const digits = parseInt(el.getAttribute("data-digits") || "6", 10);
+      const period = parseInt(el.getAttribute("data-period") || "30", 10);
+      const algorithm = el.getAttribute("data-alg") || "SHA1";
+      if (!secret) continue;
+      const code = await window.api.generateOTP(secret, { digits, period, algorithm });
+      const remain = period - (now % period);
+      const otpEl = document.getElementById("otp-" + id);
+      const leftEl = document.getElementById("left-" + id);
+      if (otpEl) otpEl.innerText = code || "ERROR";
+      if (leftEl) {
+        leftEl.innerHTML = `<span class="pulse mr-1">●</span> <span>${remain}s</span>`;
+        // Change color when time is running out
+        if (remain <= 5) {
+          leftEl.classList.add("text-red-400");
+        } else {
+          leftEl.classList.remove("text-red-400");
+        }
+      }
+    }
+  }
+
+  // ===== Manual Add =====
+  function showAddForm() {
+    const app = document.getElementById("app");
+    app.innerHTML = `
+      <div class="p-5 border-b border-dark-100 flex items-center gap-3">
+        <button onclick="renderCatalog()" class="p-2 bg-dark-100 hover:bg-dark-200 rounded-lg transition-all">
+          <i class="bi bi-arrow-left"></i>
+        </button>
+        <h2 class="text-xl font-bold">Add Account</h2>
+      </div>
+      <div class="p-5">
+        <div class="mb-4">
+          <label class="block text-gray-400 mb-2">Service</label>
+          <input id="svc" placeholder="e.g. GitHub" 
+                 class="w-full bg-dark-100 border border-dark-100 text-white p-3 rounded-lg focus:ring-2 focus:ring-accent-blue focus:outline-none transition-all" />
+        </div>
+        <div class="mb-4">
+          <label class="block text-gray-400 mb-2">Account</label>
+          <input id="acc" placeholder="e.g. user@example.com" 
+                 class="w-full bg-dark-100 border border-dark-100 text-white p-3 rounded-lg focus:ring-2 focus:ring-accent-blue focus:outline-none transition-all" />
+        </div>
+        <div class="mb-4">
+          <label class="block text-gray-400 mb-2">Secret Key (Base32)</label>
+          <input id="sec" placeholder="Enter your secret key" 
+                 class="w-full bg-dark-100 border border-dark-100 text-white p-3 rounded-lg focus:ring-2 focus:ring-accent-blue focus:outline-none transition-all" />
+        </div>
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <div>
+            <label class="block text-gray-400 mb-2">Digits</label>
+            <input id="digits" type="number" value="6" min="6" max="8" 
+                   class="w-full bg-dark-100 border border-dark-100 text-white p-3 rounded-lg focus:ring-2 focus:ring-accent-blue focus:outline-none transition-all" />
+          </div>
+          <div>
+            <label class="block text-gray-400 mb-2">Period (seconds)</label>
+            <input id="period" type="number" value="30" min="15" step="15" 
+                   class="w-full bg-dark-100 border border-dark-100 text-white p-3 rounded-lg focus:ring-2 focus:ring-accent-blue focus:outline-none transition-all" />
+          </div>
+        </div>
+        <div class="mb-6">
+          <label class="block text-gray-400 mb-2">Algorithm</label>
+          <select id="alg" class="w-full bg-dark-100 border border-dark-100 text-white p-3 rounded-lg focus:ring-2 focus:ring-accent-blue focus:outline-none transition-all">
+            <option>SHA1</option>
+            <option>SHA256</option>
+            <option>SHA512</option>
+          </select>
+        </div>
+        <button class="w-full bg-accent-blue hover:bg-blue-600 text-white p-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2" onclick="saveManual()">
+          <i class="bi bi-check-lg"></i> Save Account
+        </button>
+      </div>
+    `;
+  }
+
+  function showFileUpload() {
+    const app = document.getElementById("app");
+    app.innerHTML = `
+      <div class="p-5 border-b border-dark-100 flex items-center gap-3">
+        <button onclick="renderCatalog()" class="p-2 bg-dark-100 hover:bg-dark-200 rounded-lg transition-all">
+          <i class="bi bi-arrow-left"></i>
+        </button>
+        <h2 class="text-xl font-bold">Upload File</h2>
+      </div>
+      <div class="p-5">
+        <div class="border-2 border-dashed border-dark-100 rounded-xl p-8 text-center mb-6">
+          <i class="bi bi-cloud-arrow-up text-4xl text-gray-500 mb-3"></i>
+          <p class="text-gray-400 mb-4">Drag & drop your file here or click to browse</p>
+          <input type="file" id="fileInput" accept="image/*,.json,.txt" 
+                 class="hidden" />
+          <label for="fileInput" class="bg-dark-100 hover:bg-dark-200 text-white px-4 py-2 rounded-lg cursor-pointer transition-all">
+            Browse Files
+          </label>
+        </div>
+        <div class="text-gray-400 text-sm mb-6">
+          <p class="font-medium mb-2"><i class="bi bi-info-circle"></i> Supported files:</p>
+          <ul class="list-disc pl-5 space-y-1">
+            <li>Images containing QR codes (PNG, JPG, etc.)</li>
+            <li>JSON backup files</li>
+            <li>Text files with otpauth:// URLs</li>
+          </ul>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="renderCatalog()" class="flex-1 bg-dark-100 hover:bg-dark-200 text-white p-3 rounded-lg transition-all">Cancel</button>
+          <button onclick="handleFileUpload()" class="flex-1 bg-accent-blue hover:bg-blue-600 text-white p-3 rounded-lg transition-all flex items-center justify-center gap-2">
+            <i class="bi bi-upload"></i> Upload
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  async function handleFileUpload() {
+    const input = document.getElementById("fileInput");
+    const file = input.files[0];
+    if (!file) return showNotification("No file selected!", "error");
+
+    showNotification("Processing file...", "info");
+
+    if (file.type.startsWith("image/")) {
+      const img = new Image();
+      img.onload = async () => {
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const result = jsQR(imageData.data, imageData.width, imageData.height);
+
+        if (result && result.data) {
+          console.log("📂 QR from file:", result.data);
+          await handleOtpauth(result.data);
+        } else {
+          showNotification("No QR code detected in the image.", "error");
+        }
+      };
+      img.src = URL.createObjectURL(file);
+    } else if (file.name.endsWith(".json") || file.type === "application/json") {
+      const text = await file.text();
+      try {
+        const accounts = JSON.parse(text);
+        for (const acc of accounts) {
+          await window.api.addAccount(acc);
+        }
+        showNotification(`Imported ${accounts.length} accounts from backup!`, "success");
+        await renderCatalog();
+      } catch (e) {
+        showNotification("Invalid JSON backup file.", "error");
+      }
+    } else if (file.type === "text/plain") {
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).filter(Boolean);
+      let count = 0;
+      for (const line of lines) {
+        if (line.startsWith('otpauth://')) {
+          await handleOtpauth(line);
+          count++;
+        }
+      }
+      showNotification(`Imported ${count} accounts from text file!`, "success");
+    } else {
+      showNotification("Unsupported file type.", "error");
+    }
+  }
+
+  function askPIN(action) {
+    return new Promise((resolve, reject) => {
+      const modal = document.getElementById("pinModal");
+      const input = document.getElementById("pinInput");
+      const confirmBtn = document.getElementById("pinConfirmBtn");
+
+      modal.classList.remove("hidden");
+      input.value = "";
+      input.focus();
+
+      function cleanup() {
+        modal.classList.add("hidden");
+        confirmBtn.removeEventListener("click", onConfirm);
+      }
+
+      function onConfirm() {
+        const pin = input.value.trim();
+        if (!pin) {
+          reject(new Error("PIN required"));
+          cleanup();
+          return;
+        }
+        resolve(pin);
+        cleanup();
+      }
+
+      confirmBtn.addEventListener("click", onConfirm);
+    });
+  }
+
+  async function saveManual() {
+    const service = document.getElementById("svc").value.trim();
+    const account = document.getElementById("acc").value.trim();
+    const secret = document.getElementById("sec").value.trim();
+    const digits = parseInt(document.getElementById("digits").value || "6", 10);
+    const period = parseInt(document.getElementById("period").value || "30", 10);
+    const algorithm = document.getElementById("alg").value || "SHA1";
+    
+    if (!service || !account || !secret) {
+      showNotification("Please fill all required fields", "error");
+      return;
+    }
+    
+    try {
+      await window.api.addAccount({ service, account, secret, digits, period, algorithm });
+      showNotification("Account added successfully!", "success");
+      await renderCatalog();
+    } catch (e) {
+      showNotification("Failed to add account: " + (e.message || ""), "error");
+    }
+  }
+
+
+
+  // ===== QR Scanner =====
+  let qrStream = null;
+  
+  async function startScan() {
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+    try {
+      qrStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    } catch {
+      showNotification("Cannot access camera", "error");
+      return;
+    }
+    video.srcObject = qrStream;
+
+    const loop = async () => {
+      if (!qrStream) return;
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const result = jsQR(img.data, img.width, img.height, { inversionAttempts: "attemptBoth" });
+        if (result && result.data) {
+          console.log("✅ QR detected:", result.data);
+          await handleOtpauth(result.data);
+          stopScan();
+          document.getElementById('qrModal').classList.add('hidden');
+          return;
+        }
+      }
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  }
+
+  function stopScan() {
+    if (qrStream) {
+      qrStream.getTracks().forEach(t => t.stop());
+      qrStream = null;
+    }
+  }
+
+  async function pasteOtpauth() {
+    const uri = prompt("Paste otpauth:// URI");
+    if (!uri) return;
+    await handleOtpauth(uri);
+  }
+
+  // ===== Unified QR Handler =====
+  async function handleOtpauth(uri) {
+    console.log("📥 Scanned/Pasted QR content:", uri);
+
+    let parsed;
+    try {
+      parsed = await window.api.parseOtpAuth(uri);
+    } catch (e) {
+      console.error("❌ parseOtpAuth threw an error:", e);
+      showNotification("Parse error - check console for details", "error");
+      return;
+    }
+
+    console.log("🪄 Parsed otpauth object:", parsed);
+
+    if (!parsed) {
+      showNotification("Invalid otpauth QR/URI", "error");
+      return;
+    }
+
+    // Migration bundle: multiple accounts
+    if (parsed.migration && Array.isArray(parsed.accounts) && parsed.accounts.length) {
+      for (const acc of parsed.accounts) {
+        await window.api.addAccount({
+          service: acc.issuer || acc.account || "Unknown",
+          account: acc.account || "",
+          secret: acc.secret,
+          digits: acc.digits || 6,
+          period: acc.period || 30,
+          algorithm: acc.algorithm || "SHA1"
+        });
+      }
+      showNotification(`Added ${parsed.accounts.length} accounts from migration QR`, "success");
+      await renderCatalog();
+      return;
+    }
+
+    // Normal otpauth:// entry
+    if (parsed.secret) {
+      await window.api.addAccount({
+        service: parsed.issuer || parsed.account || "Unknown",
+        account: parsed.account || "",
+        secret: parsed.secret,
+        digits: parsed.digits || 6,
+        period: parsed.period || 30,
+        algorithm: parsed.algorithm || "SHA1"
+      });
+      showNotification(`Added ${parsed.issuer || parsed.account || "entry"}`, "success");
+      await renderCatalog();
+      return;
+    }
+
+    showNotification("Invalid otpauth QR/URI", "error");
+  }
+
+  async function selfDestruct() {
+    const confirm = window.confirm("🚨 WARNING: This will permanently delete ALL your 2FA accounts!\n\nThis action cannot be undone. Are you absolutely sure?");
+    if (!confirm) return;
+    
+    const pin = await askPIN("confirm self-destruct");
+    if (!pin) return;
+    
+    const result = await window.api.selfDestruct(pin);
+    if (result) {
+      showNotification("Vault wiped. App will close.", "success");
+      setTimeout(() => window.api.quit(), 2000);
+    } else {
+      showNotification("Self-destruct failed. Incorrect PIN?", "error");
+    }
+  }
+async function openUserData() {
+  try {
+    await window.api.openUserData();
+  } catch (e) {
+    console.error(e);
+    showNotification("Failed to open data folder", "error");
+  }
+}
+
+
+  // Initialize the app
+  render();
+
+</script>
+</body>
+</html>

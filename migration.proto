@@ -1,0 +1,35 @@
+syntax = "proto2";
+
+package otp;
+
+message MigrationPayload {
+  repeated OtpParameters otpParameters = 1;
+  optional int32 version = 2;
+  optional int32 batchSize = 3;
+  optional int32 batchIndex = 4;
+  optional int32 batchId = 5;
+}
+
+message OtpParameters {
+  optional bytes secret = 1;
+  optional string name = 2;
+  optional string issuer = 3;
+  optional Algorithm algorithm = 4;
+  optional int32 digits = 5;
+  optional OtpType type = 6;
+  optional int64 counter = 7;
+}
+
+enum Algorithm {
+  ALGO_UNKNOWN = 0;
+  ALGO_SHA1 = 1;
+  ALGO_SHA256 = 2;
+  ALGO_SHA512 = 3;
+  ALGO_MD5 = 4;
+}
+
+enum OtpType {
+  OTP_UNKNOWN = 0;
+  OTP_HOTP = 1;
+  OTP_TOTP = 2;
+}
